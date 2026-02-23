@@ -1,0 +1,1827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CGK — Provably Non-Overcommitting Distributed Capacity Layer</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:        #0b0d12;
+  --surface:   #111318;
+  --surface2:  #181b22;
+  --border:    #252830;
+  --border2:   #2e323d;
+  --text:      #e8eaf0;
+  --muted:     #6b7080;
+  --dim:       #3d4155;
+  --gold:      #c8a84b;
+  --gold-dim:  rgba(200,168,75,0.12);
+  --gold-glow: rgba(200,168,75,0.06);
+  --red:       #e05252;
+  --red-dim:   rgba(224,82,82,0.12);
+  --green:     #4caf7d;
+  --green-dim: rgba(76,175,125,0.12);
+  --blue:      #5b8dee;
+  --blue-dim:  rgba(91,141,238,0.12);
+  --step-w:    64px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ─── LAYOUT ─────────────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.brand-mark {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+
+.brand-mark span { color: var(--gold); }
+
+.brand-sub {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot.active { background: var(--green); animation: blink 2s infinite; }
+.dot.warn   { background: var(--gold);  animation: blink 1s infinite; }
+.dot.alarm  { background: var(--red);   animation: blink 0.5s infinite; }
+
+@keyframes blink {
+  0%,100%{opacity:1} 50%{opacity:0.3}
+}
+
+/* ─── STEP RAIL ───────────────────────────────────────── */
+.step-rail {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.step {
+  flex: 1;
+  min-width: 160px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  transition: background 0.2s;
+  position: relative;
+}
+
+.step:last-child { border-right: none; }
+.step:hover { background: var(--surface2); }
+
+.step.active {
+  background: var(--surface2);
+}
+
+.step.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--gold);
+}
+
+.step.completed .step-num {
+  background: var(--green);
+  color: #000;
+}
+
+.step-num {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+
+.step.active .step-num {
+  background: var(--gold);
+  color: #000;
+}
+
+.step-info { min-width: 0; }
+
+.step-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-desc {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ─── MAIN BODY ───────────────────────────────────────── */
+.body {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  overflow: hidden;
+}
+
+/* ─── NARRATIVE PANEL ─────────────────────────────────── */
+.narrative {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.narrative-inner {
+  padding: 28px 28px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.chapter {
+  display: none;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.4s ease;
+}
+.chapter.active { display: flex; }
+
+@keyframes fadeIn {
+  from { opacity:0; transform: translateY(8px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+.chapter-eyebrow {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.chapter-headline {
+  font-family: 'Fraunces', serif;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+}
+
+.chapter-body {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.chapter-body strong { color: var(--text); font-weight: 500; }
+
+.failure-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.failure-card {
+  background: var(--red-dim);
+  border: 1px solid rgba(224,82,82,0.2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.failure-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.failure-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--red);
+  margin-bottom: 3px;
+}
+
+.failure-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.key-line {
+  background: var(--gold-dim);
+  border: 1px solid rgba(200,168,75,0.25);
+  border-radius: 10px;
+  padding: 16px 18px;
+  font-family: 'Fraunces', serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--gold);
+  position: relative;
+}
+
+.key-line::before {
+  content: '"';
+  font-size: 32px;
+  position: absolute;
+  top: 4px; left: 14px;
+  opacity: 0.3;
+  line-height: 1;
+}
+
+.key-line-text { padding-left: 16px; }
+
+.invariant-statement {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.invariant-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.invariant-formula {
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  color: var(--green);
+  line-height: 1.8;
+}
+
+.action-cues {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.cue-num {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.proof-block {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-left: 3px solid var(--blue);
+  border-radius: 0 10px 10px 0;
+  padding: 16px;
+}
+
+.proof-block-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--blue);
+  margin-bottom: 10px;
+}
+
+.proof-block-text {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.9;
+}
+
+.proof-block-text em { color: var(--text); font-style: normal; }
+
+.positioning {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+}
+
+.positioning-main {
+  font-family: 'Fraunces', serif;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 20px;
+}
+
+.positioning-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.deploy-targets {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.deploy-chip {
+  padding: 5px 12px;
+  background: var(--gold-dim);
+  border: 1px solid rgba(200,168,75,0.25);
+  border-radius: 20px;
+  font-size: 11px;
+  color: var(--gold);
+  font-weight: 500;
+}
+
+.final-line {
+  font-family: 'Fraunces', serif;
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.4;
+  padding: 24px;
+  background: linear-gradient(135deg, var(--gold-dim), transparent);
+  border: 1px solid rgba(200,168,75,0.2);
+  border-radius: 12px;
+}
+
+.final-line span { color: var(--gold); }
+
+/* ─── SIM PANEL ───────────────────────────────────────── */
+.sim-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Hero Metrics */
+.hero-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+}
+
+.hero-metric {
+  padding: 24px 28px;
+  border-right: 1px solid var(--border);
+  position: relative;
+}
+.hero-metric:last-child { border-right: none; }
+
+.hm-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.hm-value {
+  font-family: 'DM Mono', monospace;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -1px;
+  line-height: 1;
+  color: var(--text);
+  transition: color 0.3s;
+}
+
+.hm-value.warning { color: var(--gold); }
+.hm-value.alarm   { color: var(--red); }
+.hm-value.good    { color: var(--green); }
+
+.hm-sub {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.hm-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--border);
+}
+
+.hm-bar-fill {
+  height: 100%;
+  background: var(--gold);
+  transition: width 0.4s ease, background 0.3s;
+}
+
+.hm-bar-fill.safe { background: var(--green); }
+.hm-bar-fill.warn { background: var(--gold); }
+.hm-bar-fill.over { background: var(--red); }
+
+/* Shards Grid */
+.shards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.shard-card {
+  padding: 20px 24px;
+  border-right: 1px solid var(--border);
+  position: relative;
+  transition: background 0.3s;
+}
+.shard-card:last-child { border-right: none; }
+
+.shard-card.partitioned {
+  background: rgba(224,82,82,0.04);
+}
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.sc-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sc-badge {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sc-badge.a { background: var(--blue-dim);  color: var(--blue);  }
+.sc-badge.b { background: var(--gold-dim);  color: var(--gold);  }
+.sc-badge.c { background: var(--green-dim); color: var(--green); }
+
+.shard-card.partitioned .sc-badge.c { background: var(--red-dim); color: var(--red); }
+
+.sc-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sc-status {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sc-status.offline { color: var(--red); }
+
+.sc-alloc-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.sc-alloc-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+
+.sc-alloc-unit {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sc-bar {
+  height: 4px;
+  background: var(--border2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.sc-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.3s;
+}
+
+.sc-bar-fill.a { background: var(--blue); }
+.sc-bar-fill.b { background: var(--gold); }
+.sc-bar-fill.c { background: var(--green); }
+.shard-card.partitioned .sc-bar-fill.c { background: var(--red); }
+
+.sc-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.sc-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sc-meta-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.sc-meta-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.partition-ribbon {
+  display: none;
+  position: absolute;
+  top: 0; right: 0;
+  background: var(--red);
+  color: #000;
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 0 0 0 8px;
+}
+
+.shard-card.partitioned .partition-ribbon { display: block; }
+
+/* Charts */
+.charts-area {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.chart-pane {
+  padding: 16px 20px;
+  border-right: 1px solid var(--border);
+  height: 160px;
+}
+.chart-pane:last-child { border-right: none; }
+
+.chart-pane-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.chart-pane-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chart-pane-value {
+  font-family: 'DM Mono', monospace;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.chart-wrap { height: 108px; }
+
+/* Controls */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-right: 1px solid var(--border);
+}
+.ctrl-group:last-child { border-right: none; }
+
+.ctrl-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.btn {
+  padding: 7px 14px;
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  background: var(--surface2);
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover { background: var(--border2); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn.go {
+  background: var(--gold);
+  color: #000;
+  border-color: var(--gold);
+  font-weight: 600;
+}
+.btn.go:hover { filter: brightness(1.1); }
+
+.btn.danger {
+  background: var(--red-dim);
+  color: var(--red);
+  border-color: rgba(224,82,82,0.35);
+}
+.btn.danger:hover { background: rgba(224,82,82,0.2); }
+
+.btn.safe {
+  background: var(--green-dim);
+  color: var(--green);
+  border-color: rgba(76,175,125,0.35);
+}
+
+.slider-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100px; height: 4px;
+  background: var(--border2);
+  border-radius: 2px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  background: var(--gold);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.slider-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text);
+  min-width: 28px;
+}
+
+/* Invariants footer */
+.invariants-bar {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.inv {
+  flex: 1;
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.3s;
+}
+.inv:last-child { border-right: none; }
+
+.inv.ok    { background: rgba(76,175,125,0.04); }
+.inv.fail  { background: rgba(224,82,82,0.08); animation: alertPulse 0.5s; }
+
+@keyframes alertPulse {
+  0%,100%{background:rgba(224,82,82,0.08)} 50%{background:rgba(224,82,82,0.2)}
+}
+
+.inv-icon {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.inv.ok   .inv-icon { background: var(--green-dim); color: var(--green); }
+.inv.fail .inv-icon { background: var(--red-dim);   color: var(--red);   }
+
+.inv-body { min-width: 0; }
+
+.inv-name {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.inv-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Log panel */
+.log-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-entry {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  animation: slideIn 0.2s ease;
+}
+.log-entry:last-child { border-bottom: none; }
+
+@keyframes slideIn {
+  from { opacity:0; transform: translateX(-4px); }
+  to   { opacity:1; transform: translateX(0); }
+}
+
+.log-t { color: var(--dim); min-width: 44px; }
+
+.log-tag {
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.log-tag.inject    { background: var(--blue-dim);  color: var(--blue); }
+.log-tag.decay     { background: var(--green-dim); color: var(--green); }
+.log-tag.merge     { background: var(--gold-dim);  color: var(--gold); }
+.log-tag.partition { background: var(--red-dim);   color: var(--red); }
+.log-tag.reconnect { background: var(--green-dim); color: var(--green); }
+.log-tag.reject    { background: rgba(255,255,255,0.05); color: var(--muted); }
+.log-tag.init      { background: rgba(255,255,255,0.05); color: var(--muted); }
+.log-tag.adversarial { background: var(--red-dim); color: var(--red); }
+
+.log-msg { color: var(--muted); }
+
+/* ─── BOTTOM BAR ──────────────────────────────────────── */
+.bottombar {
+  padding: 12px 32px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+}
+
+/* ─── MOMENT OVERLAY ──────────────────────────────────── */
+.moment-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+
+.moment-overlay.show { display: flex; }
+
+.moment-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 40px 48px;
+  max-width: 520px;
+  text-align: center;
+  animation: popIn 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
+}
+
+@keyframes popIn {
+  from { opacity:0; transform: scale(0.85); }
+  to   { opacity:1; transform: scale(1); }
+}
+
+.moment-eyebrow {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 16px;
+}
+
+.moment-headline {
+  font-family: 'Fraunces', serif;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 16px;
+  letter-spacing: -0.5px;
+}
+
+.moment-body {
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+.moment-stat {
+  font-family: 'DM Mono', monospace;
+  font-size: 40px;
+  font-weight: 500;
+  margin: 16px 0;
+}
+
+.moment-dismiss {
+  padding: 12px 32px;
+  background: var(--gold);
+  color: #000;
+  border: none;
+  border-radius: 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.moment-dismiss:hover { filter: brightness(1.1); }
+
+/* ─── STEP NAV BUTTONS ────────────────────────────────── */
+.step-nav {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.step-nav .btn { padding: 6px 16px; }
+
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark">CGK<span>·</span></div>
+    <div class="brand-sub">Provably Non-Overcommitting Distributed Capacity Layer</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:24px;">
+    <div class="live-indicator">
+      <div class="dot active" id="liveDot"></div>
+      <span id="liveStatus">Ready</span>
+    </div>
+    <div class="step-nav">
+      <button class="btn" id="prevBtn" onclick="prevStep()">← Prev</button>
+      <button class="btn go" id="nextBtn" onclick="nextStep()">Next →</button>
+    </div>
+  </div>
+</div>
+
+<!-- STEP RAIL -->
+<div class="step-rail">
+  <div class="step active" id="stepTab0" onclick="gotoStep(0)">
+    <div class="step-num">1</div>
+    <div class="step-info">
+      <div class="step-label">The Problem</div>
+      <div class="step-desc">Market failures</div>
+    </div>
+  </div>
+  <div class="step" id="stepTab1" onclick="gotoStep(1)">
+    <div class="step-num">2</div>
+    <div class="step-info">
+      <div class="step-label">Normal Operation</div>
+      <div class="step-desc">Stability under load</div>
+    </div>
+  </div>
+  <div class="step" id="stepTab2" onclick="gotoStep(2)">
+    <div class="step-num">3</div>
+    <div class="step-info">
+      <div class="step-label">Stress Test</div>
+      <div class="step-desc">Hard cap enforcement</div>
+    </div>
+  </div>
+  <div class="step" id="stepTab3" onclick="gotoStep(3)">
+    <div class="step-num">4</div>
+    <div class="step-info">
+      <div class="step-label">Partition Attack</div>
+      <div class="step-desc">Isolation + adversarial</div>
+    </div>
+  </div>
+  <div class="step" id="stepTab4" onclick="gotoStep(4)">
+    <div class="step-num">5</div>
+    <div class="step-info">
+      <div class="step-label">Convergence</div>
+      <div class="step-desc">Invariant holds</div>
+    </div>
+  </div>
+</div>
+
+<!-- BODY -->
+<div class="body">
+
+  <!-- NARRATIVE -->
+  <div class="narrative">
+    <div class="narrative-inner">
+
+      <!-- Chapter 0: The Problem -->
+      <div class="chapter active" id="chap0">
+        <div class="chapter-eyebrow">Step 1 / 5 — Context</div>
+        <div class="chapter-headline">Distributed markets overcommit under partition.</div>
+        <div class="chapter-body">
+          Every known failure in distributed capacity markets traces to the same root: <strong>state diverges during partition, then reconciles additively.</strong> The system trusts local views. The system lies.
+        </div>
+        <div class="failure-cards">
+          <div class="failure-card">
+            <div class="failure-icon">🏦</div>
+            <div>
+              <div class="failure-name">FTX — Balance Sheet Illusion</div>
+              <div class="failure-desc">Customer deposits treated as liquid capacity. Merge semantics were additive. $8B overcommit, invisible until partition (withdrawal) exposed it.</div>
+            </div>
+          </div>
+          <div class="failure-card">
+            <div class="failure-icon">🌡</div>
+            <div>
+              <div class="failure-name">Celsius Network — Liquidity Mismatch</div>
+              <div class="failure-desc">Committed yields from future yield. Two claims on the same capacity. No conservation invariant. Converged to bankruptcy.</div>
+            </div>
+          </div>
+          <div class="failure-card">
+            <div class="failure-icon">☁️</div>
+            <div>
+              <div class="failure-name">AWS Regional Outages — Cascading Dependency</div>
+              <div class="failure-desc">Capacity reservation graph had no monotone merge. Reconnect events triggered thundering herd. Safety was policy, not structure.</div>
+            </div>
+          </div>
+        </div>
+        <div class="invariant-statement">
+          <div class="invariant-label">The invariant we enforce</div>
+          <div class="invariant-formula">
+            ∀t, ∀network conditions:<br>
+            Σ allocation ≤ CAP<br><br>
+            Not by policy.<br>
+            By construction.
+          </div>
+        </div>
+      </div>
+
+      <!-- Chapter 1: Normal Operation -->
+      <div class="chapter" id="chap1">
+        <div class="chapter-eyebrow">Step 2 / 5 — Normal Operation</div>
+        <div class="chapter-headline">Contractive by design. Stable without coordination.</div>
+        <div class="chapter-body">
+          Start the simulation. Three shards accept excitation. Watch energy decay between injections. The system finds its equilibrium without any central arbiter.
+        </div>
+        <div class="action-cues">
+          <div class="cue"><div class="cue-num">1</div> Click <strong>Start</strong> to begin simulation</div>
+          <div class="cue"><div class="cue-num">2</div> Watch Energy E(t) graph decay toward zero</div>
+          <div class="cue"><div class="cue-num">3</div> Note: contraction constant c &lt; 1 always</div>
+        </div>
+        <div class="key-line">
+          <div class="key-line-text">This is contractive, so it stabilizes.</div>
+        </div>
+        <div class="proof-block">
+          <div class="proof-block-title">Why it stabilizes</div>
+          <div class="proof-block-text">
+            Weight normalization: <em>w = raw / (Σraw + δ)</em><br>
+            ε = δ / (Σraw + δ) > 0 by construction<br>
+            c = 1 − ε &lt; 1 → Banach fixed point<br>
+            → Unique equilibrium in O(log 1/ε) steps
+          </div>
+        </div>
+      </div>
+
+      <!-- Chapter 2: Stress Test -->
+      <div class="chapter" id="chap2">
+        <div class="chapter-eyebrow">Step 3 / 5 — Stress Test</div>
+        <div class="chapter-headline">Push it to the cap. It cannot cross.</div>
+        <div class="chapter-body">
+          Raise injection rate to maximum. Watch partial injections trigger as the system approaches 100. Notice the hard rejection messages in the event log.
+        </div>
+        <div class="action-cues">
+          <div class="cue"><div class="cue-num">1</div> Drag <strong>Injection Rate</strong> slider to max (20)</div>
+          <div class="cue"><div class="cue-num">2</div> Watch total allocation approach 100</div>
+          <div class="cue"><div class="cue-num">3</div> Log shows: <em>"Injection rejected: at capacity"</em></div>
+        </div>
+        <div class="key-line">
+          <div class="key-line-text">It cannot exceed 100. The cap is structural.</div>
+        </div>
+        <div class="invariant-statement">
+          <div class="invariant-label">Conservation check</div>
+          <div class="invariant-formula">
+            if (total + amount > CAP):<br>
+              amount = max(0, CAP - total)<br>
+            // not policy — enforced at inject()<br>
+            // before tokens are consumed
+          </div>
+        </div>
+      </div>
+
+      <!-- Chapter 3: Partition Attack -->
+      <div class="chapter" id="chap3">
+        <div class="chapter-eyebrow">Step 4 / 5 — Partition Attack</div>
+        <div class="chapter-headline">In isolation, it can lie to itself.</div>
+        <div class="chapter-body">
+          Partition Shard C. Then inject adversarially — maximum pressure into the isolated node. Watch it inflate locally. This is the attack scenario. The question is what happens at reconnect.
+        </div>
+        <div class="action-cues">
+          <div class="cue"><div class="cue-num">1</div> Click <strong>Partition C</strong></div>
+          <div class="cue"><div class="cue-num">2</div> Click <strong>Adversarial Inject</strong> several times</div>
+          <div class="cue"><div class="cue-num">3</div> Watch C's allocation inflate toward local cap</div>
+          <div class="cue"><div class="cue-num">4</div> Note: A+B remain bounded globally</div>
+        </div>
+        <div class="key-line">
+          <div class="key-line-text">In isolation, it can lie to itself.</div>
+        </div>
+        <div class="invariant-statement">
+          <div class="invariant-label">Local cap during partition</div>
+          <div class="invariant-formula">
+            localCap = CAP / numShards<br>
+            // C can reach 33.3, not 100<br>
+            // Merge cannot double-count<br>
+            // because join ≠ sum
+          </div>
+        </div>
+      </div>
+
+      <!-- Chapter 4: Convergence -->
+      <div class="chapter" id="chap4">
+        <div class="chapter-eyebrow">Step 5 / 5 — Convergence</div>
+        <div class="chapter-headline">Reconciliation without double-spend.</div>
+        <div class="chapter-body">
+          Reconnect C. The merge fires. Energy spikes briefly — then contracts. The total allocation stays below 100. Invariants remain green. This is the moment.
+        </div>
+        <div class="action-cues">
+          <div class="cue"><div class="cue-num">1</div> Click <strong>Reconnect + Merge</strong></div>
+          <div class="cue"><div class="cue-num">2</div> Watch energy chart — spike then decay</div>
+          <div class="cue"><div class="cue-num">3</div> Total allocation stays ≤ 100</div>
+          <div class="cue"><div class="cue-num">4</div> All invariants remain satisfied</div>
+        </div>
+        <div class="positioning">
+          <div class="positioning-main">Provably Non-Overcommitting<br>Distributed Capacity Layer</div>
+          <div class="positioning-sub">Production-grade substrate for any market with hard capacity bounds</div>
+          <div class="deploy-targets">
+            <div class="deploy-chip">Cloud Compute Clearing</div>
+            <div class="deploy-chip">AI Inference Markets</div>
+            <div class="deploy-chip">Microgrid Balancing</div>
+          </div>
+        </div>
+        <div class="final-line">
+          In most distributed markets,<br>safety is a policy.<br><br>
+          <span>Here, safety is an invariant.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SIM PANEL -->
+  <div class="sim-panel">
+
+    <!-- Hero Metrics -->
+    <div class="hero-metrics">
+      <div class="hero-metric">
+        <div class="hm-label">Total Allocation / CAP</div>
+        <div class="hm-value" id="hmAlloc">0.00</div>
+        <div class="hm-sub">/ 100.00 — <span id="hmAllocPct">0%</span></div>
+        <div class="hm-bar"><div class="hm-bar-fill safe" id="hmAllocBar" style="width:0%"></div></div>
+      </div>
+      <div class="hero-metric">
+        <div class="hm-label">Contraction Constant c</div>
+        <div class="hm-value good" id="hmC">—</div>
+        <div class="hm-sub">must remain &lt; 1.000</div>
+        <div class="hm-bar"><div class="hm-bar-fill safe" id="hmCBar" style="width:95%"></div></div>
+      </div>
+      <div class="hero-metric">
+        <div class="hm-label">Merge Operations</div>
+        <div class="hm-value" id="hmMerge">0</div>
+        <div class="hm-sub">lattice join ⊔ — no additive merge</div>
+        <div class="hm-bar"><div class="hm-bar-fill safe" style="width:0%;background:var(--blue)"></div></div>
+      </div>
+    </div>
+
+    <!-- Shards Grid -->
+    <div class="shards-grid">
+      <!-- Shard A -->
+      <div class="shard-card" id="scA">
+        <div class="sc-header">
+          <div class="sc-name">
+            <div class="sc-badge a">A</div>
+            <div class="sc-title">Shard Alpha</div>
+          </div>
+          <div class="sc-status" id="scAStatus"><div class="dot active" style="width:6px;height:6px"></div> Online</div>
+        </div>
+        <div class="sc-alloc-row">
+          <div class="sc-alloc-val" id="scAAlloc">0.00</div>
+          <div class="sc-alloc-unit">/ 100</div>
+        </div>
+        <div class="sc-bar"><div class="sc-bar-fill a" id="scABar" style="width:0%"></div></div>
+        <div class="sc-meta">
+          <div class="sc-meta-item">
+            <div class="sc-meta-label">Height h(S)</div>
+            <div class="sc-meta-val" id="scAHeight">0</div>
+          </div>
+          <div class="sc-meta-item">
+            <div class="sc-meta-label">Tokens</div>
+            <div class="sc-meta-val" id="scATokens">100</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shard B -->
+      <div class="shard-card" id="scB">
+        <div class="sc-header">
+          <div class="sc-name">
+            <div class="sc-badge b">B</div>
+            <div class="sc-title">Shard Beta</div>
+          </div>
+          <div class="sc-status" id="scBStatus"><div class="dot active" style="width:6px;height:6px"></div> Online</div>
+        </div>
+        <div class="sc-alloc-row">
+          <div class="sc-alloc-val" id="scBAlloc">0.00</div>
+          <div class="sc-alloc-unit">/ 100</div>
+        </div>
+        <div class="sc-bar"><div class="sc-bar-fill b" id="scBBar" style="width:0%"></div></div>
+        <div class="sc-meta">
+          <div class="sc-meta-item">
+            <div class="sc-meta-label">Height h(S)</div>
+            <div class="sc-meta-val" id="scBHeight">0</div>
+          </div>
+          <div class="sc-meta-item">
+            <div class="sc-meta-label">Tokens</div>
+            <div class="sc-meta-val" id="scBTokens">100</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shard C -->
+      <div class="shard-card" id="scC">
+        <div class="partition-ribbon">PARTITIONED</div>
+        <div class="sc-header">
+          <div class="sc-name">
+            <div class="sc-badge c">C</div>
+            <div class="sc-title">Shard Gamma</div>
+          </div>
+          <div class="sc-status" id="scCStatus"><div class="dot active" style="width:6px;height:6px"></div> Online</div>
+        </div>
+        <div class="sc-alloc-row">
+          <div class="sc-alloc-val" id="scCAlloc">0.00</div>
+          <div class="sc-alloc-unit">/ 100</div>
+        </div>
+        <div class="sc-bar"><div class="sc-bar-fill c" id="scCBar" style="width:0%"></div></div>
+        <div class="sc-meta">
+          <div class="sc-meta-item">
+            <div class="sc-meta-label">Height h(S)</div>
+            <div class="sc-meta-val" id="scCHeight">0</div>
+          </div>
+          <div class="sc-meta-item">
+            <div class="sc-meta-label">Tokens</div>
+            <div class="sc-meta-val" id="scCTokens">100</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-area">
+      <div class="chart-pane">
+        <div class="chart-pane-header">
+          <div class="chart-pane-title">Energy E(t)</div>
+          <div class="chart-pane-value" id="cpEnergy">0.0</div>
+        </div>
+        <div class="chart-wrap"><canvas id="energyChart"></canvas></div>
+      </div>
+      <div class="chart-pane">
+        <div class="chart-pane-header">
+          <div class="chart-pane-title">Allocation vs CAP</div>
+          <div class="chart-pane-value" id="cpAlloc">0.0</div>
+        </div>
+        <div class="chart-wrap"><canvas id="allocChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Controls Bar -->
+    <div class="controls-bar">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Sim</span>
+        <button class="btn go" id="btnStart" onclick="startSim()">Start</button>
+        <button class="btn" id="btnPause" onclick="pauseSim()">Pause</button>
+        <button class="btn" onclick="resetSim()">Reset</button>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Injection Rate</span>
+        <div class="slider-ctrl">
+          <input type="range" id="injRate" min="0" max="20" value="5" oninput="this.nextElementSibling.textContent=this.value">
+          <span class="slider-val">5</span>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Decay δ</span>
+        <div class="slider-ctrl">
+          <input type="range" id="decayR" min="1" max="20" value="5" oninput="updateDecay(this)">
+          <span class="slider-val" id="decayVal">0.05</span>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Partition</span>
+        <button class="btn danger" id="btnPart" onclick="partitionC()">Partition C</button>
+        <button class="btn safe" id="btnRecon" onclick="reconnect()" disabled>Reconnect + Merge</button>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Adversarial</span>
+        <button class="btn danger" id="btnAdv" onclick="adversarial()">Inject Max → C</button>
+      </div>
+    </div>
+
+    <!-- Invariants Bar -->
+    <div class="invariants-bar">
+      <div class="inv ok" id="invCons">
+        <div class="inv-icon">✓</div>
+        <div class="inv-body">
+          <div class="inv-name">Conservation</div>
+          <div class="inv-val" id="invConsVal">0.00 ≤ 100.00</div>
+        </div>
+      </div>
+      <div class="inv ok" id="invMrg">
+        <div class="inv-icon">✓</div>
+        <div class="inv-body">
+          <div class="inv-name">Merge Semantics</div>
+          <div class="inv-val" id="invMrgVal">Join ⊔ compliant</div>
+        </div>
+      </div>
+      <div class="inv ok" id="invBgt">
+        <div class="inv-icon">✓</div>
+        <div class="inv-body">
+          <div class="inv-name">Excitation Budget</div>
+          <div class="inv-val" id="invBgtVal">300 / 300 tokens</div>
+        </div>
+      </div>
+      <div class="inv ok" id="invCon">
+        <div class="inv-icon">✓</div>
+        <div class="inv-body">
+          <div class="inv-name">Contractivity</div>
+          <div class="inv-val" id="invConVal">c &lt; 1.000</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="log-panel" id="logPanel">
+      <div class="log-entry">
+        <span class="log-t">00:00</span>
+        <span class="log-tag init">init</span>
+        <span class="log-msg">System initialized — CAP=100, ε_min=0.05</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottombar">
+  <span id="tickDisplay">tick: 0</span>
+  <span>Banach fixed-point · Tarski lattice · CRDT merge · Token-gated injection</span>
+  <span id="stepsDisplay">steps to ε: —</span>
+</div>
+
+</div><!-- /shell -->
+
+<!-- MOMENT OVERLAY -->
+<div class="moment-overlay" id="momentOverlay">
+  <div class="moment-card">
+    <div class="moment-eyebrow" id="momentEyebrow">Key Moment</div>
+    <div class="moment-headline" id="momentHeadline">Invariant Holds</div>
+    <div class="moment-body" id="momentBody">The system reconciled without overcommit.</div>
+    <div class="moment-stat" id="momentStat"></div>
+    <button class="moment-dismiss" onclick="closeMoment()">Continue →</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CGK SIMULATION ENGINE
+// ═══════════════════════════════════════════════════════
+
+const CAP = 100;
+const MAX_TOKENS = 100;
+const TOKEN_REGEN = 0.5;
+
+let sim = {
+  running: false,
+  tick: 0,
+  shards: {
+    A: { alloc:0, height:0, tokens:MAX_TOKENS, delta:0.05, partitioned:false },
+    B: { alloc:0, height:0, tokens:MAX_TOKENS, delta:0.05, partitioned:false },
+    C: { alloc:0, height:0, tokens:MAX_TOKENS, delta:0.05, partitioned:false }
+  },
+  energyHist: [],
+  allocHist:  [],
+  mergeCount: 0,
+  partitioned: false
+};
+
+// Lattice
+const L = {
+  height: v => Math.ceil(v * 10),
+  join:   (a,b) => Math.max(a,b),
+  meet:   (a,b) => Math.min(a,b),
+  energy: s => Object.values(s).reduce((sum,sh) => sum + L.height(sh.alloc), 0)
+};
+
+function contractionC() {
+  const deltas = Object.values(sim.shards).map(s=>s.delta);
+  const minDelta = Math.min(...deltas);
+  const avgAlloc = Object.values(sim.shards).reduce((s,sh)=>s+sh.alloc,0)/3;
+  const eps = minDelta / (avgAlloc + minDelta + 0.01);
+  return Math.min(0.99, 1 - eps);
+}
+
+function totalAlloc(onlyConnected=false) {
+  return Object.values(sim.shards)
+    .filter(s => !onlyConnected || !s.partitioned)
+    .reduce((s,sh)=>s+sh.alloc,0);
+}
+
+function totalTokens() {
+  return Object.values(sim.shards).reduce((s,sh)=>s+sh.tokens,0);
+}
+
+function inject(id, amount) {
+  const sh = sim.shards[id];
+  if (sh.tokens < 1) { log('reject',`${id}: no tokens`); return false; }
+  const localCap = CAP / 3;
+  if (sh.partitioned) {
+    if (sh.alloc >= localCap) { log('reject',`${id}: local cap`); return false; }
+    amount = Math.min(amount, localCap - sh.alloc, sh.tokens);
+  } else {
+    const conn = totalAlloc(true);
+    if (conn >= CAP) { log('reject',`Global cap reached (${conn.toFixed(1)}/${CAP})`); return false; }
+    amount = Math.min(amount, CAP - conn, sh.tokens);
+  }
+  if (amount <= 0) return false;
+  sh.tokens -= amount;
+  sh.alloc  += amount;
+  sh.height  = L.height(sh.alloc);
+  log('inject',`${id} +${amount.toFixed(2)} → ${sh.alloc.toFixed(2)}`);
+  return true;
+}
+
+function applyTransition() {
+  const c = contractionC();
+  for (const [id,sh] of Object.entries(sim.shards)) {
+    if (sh.partitioned) continue;
+    const decay = sh.alloc * (1-c) * sh.delta;
+    sh.alloc = Math.max(0, sh.alloc - decay);
+    sh.height = L.height(sh.alloc);
+    sh.tokens = Math.min(MAX_TOKENS, sh.tokens + TOKEN_REGEN * sh.delta * 10);
+  }
+}
+
+function doMerge(idA, idB) {
+  const a = sim.shards[idA], b = sim.shards[idB];
+  const joined = L.join(a.alloc, b.alloc);
+  const other  = Object.entries(sim.shards)
+    .filter(([id])=>id!==idA&&id!==idB)
+    .reduce((s,[,sh])=>s+sh.alloc,0);
+  const safePerShard = Math.max(0,(CAP - other)/2);
+  const c = contractionC();
+  const merged = Math.min(joined, safePerShard) * c;
+  a.alloc = b.alloc = merged;
+  a.height = b.height = L.height(merged);
+  a.tokens = b.tokens = L.meet(a.tokens, b.tokens);
+  sim.mergeCount++;
+  log('merge',`${idA}⊔${idB}=${merged.toFixed(2)} (join-safe, c=${c.toFixed(3)})`);
+}
+
+// ─── Controls ─────────────────────────────────────────
+
+function startSim() {
+  sim.running = true;
+  setStatus('active', 'Simulating');
+}
+
+function pauseSim() {
+  sim.running = false;
+  setStatus('warn','Paused');
+}
+
+function resetSim() {
+  sim.running = false;
+  sim.tick = 0;
+  sim.shards = {
+    A:{alloc:0,height:0,tokens:MAX_TOKENS,delta:0.05,partitioned:false},
+    B:{alloc:0,height:0,tokens:MAX_TOKENS,delta:0.05,partitioned:false},
+    C:{alloc:0,height:0,tokens:MAX_TOKENS,delta:0.05,partitioned:false}
+  };
+  sim.energyHist=[]; sim.allocHist=[];
+  sim.mergeCount=0; sim.partitioned=false;
+  document.getElementById('btnPart').disabled=false;
+  document.getElementById('btnRecon').disabled=true;
+  document.getElementById('logPanel').innerHTML=`
+    <div class="log-entry">
+      <span class="log-t">00:00</span>
+      <span class="log-tag init">init</span>
+      <span class="log-msg">System reset — CAP=${CAP}</span>
+    </div>`;
+  energyChart.data.labels=[];
+  energyChart.data.datasets[0].data=[];
+  allocChart.data.labels=[];
+  allocChart.data.datasets[0].data=[];
+  allocChart.data.datasets[1].data=[];
+  energyChart.update('none');
+  allocChart.update('none');
+  setStatus('','Ready');
+  updateUI();
+}
+
+function partitionC() {
+  if (sim.partitioned) return;
+  sim.partitioned = true;
+  sim.shards.C.partitioned = true;
+  document.getElementById('btnPart').disabled=true;
+  document.getElementById('btnRecon').disabled=false;
+  document.getElementById('scC').classList.add('partitioned');
+  document.getElementById('scCStatus').innerHTML=`<div class="dot alarm" style="width:6px;height:6px"></div> Isolated`;
+  document.getElementById('scCStatus').className='sc-status offline';
+  log('partition','Shard C isolated — adversarial window open');
+  setStatus('alarm','Partition Active');
+}
+
+function reconnect() {
+  if (!sim.partitioned) return;
+  sim.shards.C.partitioned = false;
+  sim.partitioned = false;
+  const preTotal = totalAlloc();
+  doMerge('A','C');
+  doMerge('B','C');
+  const postTotal = totalAlloc();
+  document.getElementById('btnPart').disabled=false;
+  document.getElementById('btnRecon').disabled=true;
+  document.getElementById('scC').classList.remove('partitioned');
+  document.getElementById('scCStatus').innerHTML=`<div class="dot active" style="width:6px;height:6px"></div> Online`;
+  document.getElementById('scCStatus').className='sc-status';
+  log('reconnect',`C rejoined — total: ${preTotal.toFixed(1)}→${postTotal.toFixed(1)}, invariant: ${postTotal<=CAP?'HELD':'VIOLATED'}`);
+  setStatus('active','Simulating');
+  showMoment(postTotal);
+}
+
+function adversarial() {
+  if (!sim.partitioned) { log('reject','Adversarial requires partition'); return; }
+  const sh = sim.shards.C;
+  const localCap = CAP/3;
+  const maxByTok = sh.tokens;
+  const maxByCap = Math.max(0, localCap - sh.alloc);
+  const inj = Math.min(maxByTok, maxByCap, 15);
+  if (inj <= 0) { log('reject',`C: adversarial blocked (alloc=${sh.alloc.toFixed(1)}, localCap=${localCap.toFixed(1)})`); return; }
+  sh.tokens -= inj;
+  sh.alloc  += inj;
+  sh.height  = L.height(sh.alloc);
+  log('adversarial',`C +${inj.toFixed(2)} → ${sh.alloc.toFixed(2)} (localCap=${localCap.toFixed(1)})`);
+  updateUI();
+}
+
+function updateDecay(el) {
+  const d = el.value/100;
+  document.getElementById('decayVal').textContent=d.toFixed(2);
+  for (const sh of Object.values(sim.shards)) sh.delta=d;
+}
+
+// ─── UI ───────────────────────────────────────────────
+
+function updateUI() {
+  // Shards
+  for (const [id,sh] of Object.entries(sim.shards)) {
+    const pct = (sh.alloc/CAP)*100;
+    document.getElementById(`sc${id}Alloc`).textContent = sh.alloc.toFixed(2);
+    document.getElementById(`sc${id}Height`).textContent = sh.height;
+    document.getElementById(`sc${id}Tokens`).textContent = sh.tokens.toFixed(0);
+    const bar = document.getElementById(`sc${id}Bar`);
+    bar.style.width = Math.min(100,pct*3)+'%';
+  }
+
+  // Hero metrics
+  const tot = totalAlloc(false);
+  const pct = (tot/CAP)*100;
+  const c   = contractionC();
+  document.getElementById('hmAlloc').textContent = tot.toFixed(2);
+  document.getElementById('hmAllocPct').textContent = pct.toFixed(1)+'%';
+  const hmEl = document.getElementById('hmAlloc');
+  hmEl.className = 'hm-value' + (pct>90?' alarm':pct>70?' warning':'');
+  const bar = document.getElementById('hmAllocBar');
+  bar.style.width = Math.min(100,pct)+'%';
+  bar.className = 'hm-bar-fill' + (pct>90?' over':pct>70?' warn':' safe');
+
+  document.getElementById('hmC').textContent = c.toFixed(4);
+  document.getElementById('hmMerge').textContent = sim.mergeCount;
+
+  // Chart labels
+  const energy = L.energy(sim.shards);
+  document.getElementById('cpEnergy').textContent = energy.toFixed(1);
+  document.getElementById('cpAlloc').textContent = tot.toFixed(1);
+
+  // Invariants
+  const consOk = tot <= CAP;
+  const mergeOk = c < 1;
+  const tokOk = totalTokens() <= MAX_TOKENS*3;
+  const conOk = c < 1;
+
+  setInv('Cons', consOk, `${tot.toFixed(2)} ≤ ${CAP}`);
+  setInv('Mrg',  mergeOk, mergeOk?`Join ⊔ compliant`:`VIOLATED`);
+  setInv('Bgt',  tokOk,   `${totalTokens().toFixed(0)} / ${MAX_TOKENS*3} tokens`);
+  setInv('Con',  conOk,   `c = ${c.toFixed(4)} < 1`);
+
+  // Tick / steps
+  document.getElementById('tickDisplay').textContent = `tick: ${sim.tick}`;
+  const eps=0.01, steps = energy>eps ? Math.ceil(Math.log(eps/Math.max(energy,0.001))/Math.log(c)) : 0;
+  document.getElementById('stepsDisplay').textContent = `steps to ε: ${Math.max(0,steps)}`;
+}
+
+function setInv(key, ok, val) {
+  const el = document.getElementById('inv'+key);
+  el.className = 'inv '+(ok?'ok':'fail');
+  el.querySelector('.inv-icon').textContent = ok?'✓':'✗';
+  document.getElementById('inv'+key+'Val').textContent = val;
+}
+
+function setStatus(type, text) {
+  const dot = document.getElementById('liveDot');
+  dot.className = 'dot'+(type?' '+type:'');
+  document.getElementById('liveStatus').textContent = text;
+}
+
+function log(type, msg) {
+  const panel = document.getElementById('logPanel');
+  const t = sim.tick;
+  const ts = `${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;
+  const div = document.createElement('div');
+  div.className='log-entry';
+  div.innerHTML=`<span class="log-t">${ts}</span><span class="log-tag ${type}">${type}</span><span class="log-msg">${msg}</span>`;
+  panel.insertBefore(div, panel.firstChild);
+  while(panel.children.length>60) panel.removeChild(panel.lastChild);
+}
+
+// ─── Moment overlay ───────────────────────────────────
+
+function showMoment(postTotal) {
+  const held = postTotal <= CAP;
+  document.getElementById('momentEyebrow').textContent = held ? 'Invariant Held' : 'Violation Detected';
+  document.getElementById('momentHeadline').textContent = held
+    ? 'No double-spend. No overcommit.' : 'Conservation violated.';
+  document.getElementById('momentBody').textContent = held
+    ? 'Adversarial inflation in C was bounded by local cap. Merge applied lattice join — not addition. Energy contracted. The system is consistent.'
+    : 'Conservation invariant failed. Check merge semantics.';
+  document.getElementById('momentStat').textContent = postTotal.toFixed(2)+' / '+CAP;
+  document.getElementById('momentStat').style.color = held ? 'var(--green)' : 'var(--red)';
+  document.getElementById('momentOverlay').classList.add('show');
+}
+
+function closeMoment() {
+  document.getElementById('momentOverlay').classList.remove('show');
+}
+
+// ─── Charts ───────────────────────────────────────────
+
+let energyChart, allocChart;
+
+function initCharts() {
+  const opts = {
+    responsive:true, maintainAspectRatio:false,
+    animation: false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{display:false},
+      y:{
+        grid:{color:'rgba(255,255,255,0.04)'},
+        ticks:{color:'#6b7080',font:{size:9},maxTicksLimit:4},
+        border:{color:'#252830'}
+      }
+    }
+  };
+
+  energyChart = new Chart(document.getElementById('energyChart'),{
+    type:'line',
+    data:{
+      labels:[],
+      datasets:[{
+        data:[],
+        borderColor:'#4caf7d',
+        backgroundColor:'rgba(76,175,125,0.08)',
+        fill:true, tension:0.4, pointRadius:0, borderWidth:1.5
+      }]
+    },
+    options:{...opts, scales:{...opts.scales, y:{...opts.scales.y, min:0}}}
+  });
+
+  allocChart = new Chart(document.getElementById('allocChart'),{
+    type:'line',
+    data:{
+      labels:[],
+      datasets:[
+        {
+          data:[],
+          borderColor:'#c8a84b',
+          backgroundColor:'rgba(200,168,75,0.08)',
+          fill:true, tension:0.4, pointRadius:0, borderWidth:1.5
+        },
+        {
+          data:[],
+          borderColor:'rgba(224,82,82,0.5)',
+          borderDash:[4,4], pointRadius:0, borderWidth:1
+        }
+      ]
+    },
+    options:{...opts, scales:{...opts.scales, y:{...opts.scales.y, min:0, max:120}}}
+  });
+}
+
+function updateCharts() {
+  const energy = L.energy(sim.shards);
+  const tot    = totalAlloc();
+  sim.energyHist.push(energy);
+  sim.allocHist.push(tot);
+  if(sim.energyHist.length>120){sim.energyHist.shift();sim.allocHist.shift();}
+  const labs = sim.energyHist.map((_,i)=>i);
+  energyChart.data.labels=labs;
+  energyChart.data.datasets[0].data=sim.energyHist;
+  energyChart.update('none');
+  allocChart.data.labels=labs;
+  allocChart.data.datasets[0].data=sim.allocHist;
+  allocChart.data.datasets[1].data=labs.map(()=>CAP);
+  allocChart.update('none');
+}
+
+// ─── Tick loop ────────────────────────────────────────
+
+function tick() {
+  if (!sim.running) return;
+  sim.tick++;
+  const rate = parseInt(document.getElementById('injRate').value);
+  if (Math.random() < rate/100) {
+    const active = Object.keys(sim.shards).filter(id=>!sim.shards[id].partitioned);
+    if (active.length) inject(active[Math.floor(Math.random()*active.length)], Math.random()*4+0.5);
+  }
+  applyTransition();
+  updateUI();
+  updateCharts();
+}
+
+// ─── Step navigation ──────────────────────────────────
+
+let currentStep = 0;
+
+function gotoStep(n) {
+  document.getElementById(`chap${currentStep}`).classList.remove('active');
+  document.getElementById(`stepTab${currentStep}`).classList.remove('active');
+  if (n > currentStep) document.getElementById(`stepTab${currentStep}`).classList.add('completed');
+  currentStep = n;
+  document.getElementById(`chap${n}`).classList.add('active');
+  document.getElementById(`stepTab${n}`).classList.add('active');
+  document.getElementById('prevBtn').disabled = n===0;
+  document.getElementById('nextBtn').textContent = n===4 ? 'Finish' : 'Next →';
+  // Auto-actions per step
+  if (n===1 && !sim.running) startSim();
+  if (n===2) {
+    document.getElementById('injRate').value=18;
+    document.querySelector('#injRate+span').textContent='18';
+  }
+}
+
+function nextStep() { if(currentStep<4) gotoStep(currentStep+1); }
+function prevStep() { if(currentStep>0) gotoStep(currentStep-1); }
+
+// ─── Init ─────────────────────────────────────────────
+initCharts();
+updateUI();
+updateCharts();
+setInterval(tick, 100);
+</script>
+
+</body>
+</html>
