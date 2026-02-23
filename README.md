@@ -7,7 +7,7 @@ A distributed primitive that **mathematically prevents capacity overcommitment**
 [![Open in Browser](https://img.shields.io/badge/Open%20Demo-Click%20Here-brightgreen?style=for-the-badge&logo=html5&logoColor=white)](https://distributed-markets-overcommit.github.io/Distributed-markets-overcommit/)
 
 > **Live demo (single HTML file — no build required)**  
-> https://distributed-markets-overcommit.github.io/Distributed-markets-overcommit/
+> [https://sovereign-technology.github.io/Distributed-markets-overcommit/]
 
 ## What CGK solves
 
